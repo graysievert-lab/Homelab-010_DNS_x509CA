@@ -1,19 +1,21 @@
-# Emulating OpenWRT arm64 router on Proxmox VE 
+# Emulating OpenWRT arm64 router on Proxmox VE
+
 This guide has translation to [Russian language](https://habr.com/ru/articles/826526/).
 
-You will need root access to an installation of Proxmox Virtual Environment, In my case it was v8.2.2. 
+You will need root access to an installation of Proxmox Virtual Environment, In my case it was v8.2.2.
 I was setting up OpenWrt v23.05.3.
 
 Here's the plan:
+
 - First we will emulate Openwrt on a x86_64 architecture, just as a backup if the next step fails
 - Then we'll set up proxmox to emulate arm version of Openwrt
 - And finally, ensure our emulated router resembles real-world network configuration
 
+## OpenWrt x86_64
 
-## OpenWrt x86_64 
-
-Go to OpenWRT [release page](https://downloads.openwrt.org/releases/), select a release, then `targets -> x86 -> 64`. 
+Go to OpenWRT [release page](https://downloads.openwrt.org/releases/), select a release, then `targets -> x86 -> 64`.
 On the Proxmox host, download the archive and unpack it:
+
 ```bash
 $ cd /var/lib/vz/template/iso
 
@@ -21,7 +23,9 @@ $ wget -c https://downloads.openwrt.org/releases/23.05.3/targets/x86/64/openwrt-
 
 $ gunzip openwrt-23.05.3-x86-64-generic-squashfs-combined-efi.img.gz
 ```
+
 launch vm with the next available ID
+
 ```bash
 $ qm create $(pvesh get /cluster/nextid) \
 --name "openwrt-amd64" \
@@ -40,11 +44,15 @@ $ qm create $(pvesh get /cluster/nextid) \
 --scsi0 file=local-zfs:0,import-from="/var/lib/vz/template/iso/openwrt-23.05.3-x86-64-generic-squashfs-combined-efi.img" \
 --net0 model=virtio,bridge=vmbr0,firewall=1,link_down=0,mtu=1
 ```
+
 Start the machine
+
 ```bash
 $ qm start 108 ; qm terminal 108
 ```
+
 Check system info
+
 ```bash
 $ cat /etc/os-release 
 NAME="OpenWrt"
@@ -67,16 +75,18 @@ OPENWRT_DEVICE_REVISION="v0"
 OPENWRT_RELEASE="OpenWrt 23.05.3 r23809-234f1a2efa"
 ```
 
-
 ## OpenWrt ARM64
 
 As mentioned in [release notes](https://pve.proxmox.com/wiki/Roadmap#Proxmox_VE_8.1) in order to be able to emulate (U)EFI firmware for ARM64 virtual machines, we would need to manually install `pve-edk2-firmware-aarch64` package.
+
 ```bash
 $ apt install pve-edk2-firmware-aarch64
 ```
+
 Now let's prepare the image.
-Go to OpenWRT release page, select a release, then `targets -> armsr -> armv8`. 
+Go to OpenWRT release page, select a release, then `targets -> armsr -> armv8`.
 On the Proxmox host, download the archive and unpack it:
+
 ```bash
 $ cd /var/lib/vz/template/iso
 
@@ -84,7 +94,9 @@ $ wget -c https://downloads.openwrt.org/releases/23.05.3/targets/armsr/armv8/ope
 
 $ gunzip openwrt-23.05.3-armsr-armv8-generic-squashfs-combined.img.gz
 ```
+
 Create vm with the following command
+
 ```bash
 $ qm create $(pvesh get /cluster/nextid) \ 
 --name "openwrt" \
@@ -103,11 +115,15 @@ $ qm create $(pvesh get /cluster/nextid) \
 --scsi0 file=local-zfs:0,import-from="/var/lib/vz/template/iso/openwrt-23.05.3-armsr-armv8-generic-squashfs-combined.img" \
 --net0 model=virtio,bridge=vmbr0,firewall=1,link_down=0,mtu=1
 ```
+
 load
+
 ```bash
 $ qm start 108 ; qm terminal 108
 ```
+
 Check system info
+
 ```bash
 $ cat /etc/os-release  
 NAME="OpenWrt"
@@ -132,8 +148,9 @@ OPENWRT_RELEASE="OpenWrt 23.05.3 r23809-234f1a2efa"
 
 ## Additional network intefaces
 
-Ok that was just one network interface which automatically becomes `br-lan` and interferes with our existing dhcp server on our network. To change it into the router mode we need to add second network interface. 
+Ok that was just one network interface which automatically becomes `br-lan` and interferes with our existing dhcp server on our network. To change it into the router mode we need to add second network interface.
 Let's create `vmbr1` bridge device in proxmox:
+
 ```bash
 $ cp /etc/network/interfaces /etc/network/interfaces.new
 
@@ -151,13 +168,16 @@ $ systemctl start pvenetcommit
 $ systemctl restart networking
 ```
 
-When two network interfaces are awailable in Openwrt, it would assign the first one `eth0` as LAN and the second one `eth1` as WAN. 
-In order to simulate typical home network setup and avoid interference between dhcp servers we need our new `vmbr1` interface to become `eth0` in openwrt and proxmox main interface `vmbr0` to become `eth1`. 
+When two network interfaces are awailable in Openwrt, it would assign the first one `eth0` as LAN and the second one `eth1` as WAN.
+In order to simulate typical home network setup and avoid interference between dhcp servers we need our new `vmbr1` interface to become `eth0` in openwrt and proxmox main interface `vmbr0` to become `eth1`.
 Let's cleanup
+
 ```bash
 $ qm stop <VMID> ; qm destroy <VMID>
 ```
+
 VM creation command becomes
+
 ```bash
 $ qm create $(pvesh get /cluster/nextid) \
 --name "openwrt-aarch64" \
@@ -177,12 +197,15 @@ $ qm create $(pvesh get /cluster/nextid) \
 --net1 model=virtio,bridge=vmbr0,firewall=1,link_down=0,mtu=1 \
 --net0 model=virtio,bridge=vmbr1,firewall=1,link_down=0,mtu=1
 ```
+
 Start the machine
+
 ```bash
 $ qm start <VMID> ; qm terminal <VMID>
 ```
 
 After it is loaded let's check the network config
+
 ```bash
 $ ip a 
 1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN qlen 1000
@@ -234,10 +257,12 @@ config interface 'wan6'
         option device 'eth1'
         option proto 'dhcpv6'
 ```
+
 As one can see, wan interface is mapped to `eth1` which got an IP `10.1.2.239` from the real router.
 
-Openwrt by default exposes management interfaces on LAN side. Let's change that to simplify our interaction with emulated router. 
+Openwrt by default exposes management interfaces on LAN side. Let's change that to simplify our interaction with emulated router.
 Please note that the following steps should not be taken on your real router. In order to open management interfaces from WAN side run the following commands.
+
 ```bash
 $ uci add firewall rule
 $ uci set firewall.@rule[-1].name='Allow-Admin'
@@ -250,7 +275,9 @@ $ uci add firewall rule
 $ uci commit firewall  
 $ service firewall restart
 ```
-check the connection (note there is no request for password or ssh key!!!): 
+
+check the connection (note there is no request for password or ssh key!!!):
+
 ```bash
 $ ssh root@10.1.2.239
 BusyBox v1.36.1 (2024-03-22 22:09:42 UTC) built-in shell (ash)
@@ -268,4 +295,5 @@ Use the "passwd" command to set up a new password
 in order to prevent unauthorized SSH logins.
 --------------------------------------------------
 ```
+
 Now we are ready for experiments with the openwrt router without chances to break the device.

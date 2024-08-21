@@ -1,30 +1,33 @@
 # Installing BIND with dynamic DNS updates on OpenWRT
+
 This guide has translation to [Russian language](https://habr.com/ru/articles/826826/).
 
 Plan:
+
 1. Install BIND
 2. Disable dnsmasq's DNS forwarder leaving the DHCP server operational
-3. Perform basic configuration 
+3. Perform basic configuration
 4. Enable and test dynamic zones updates
 5. Automate automatic updates of records for hosts receiving leases from DHCP
 
 Assumptions:
-- `.lan` is the suffix for hostnames on the local network, 
-- local network CIDR is `192.168.1.0/24` 
+
+- `.lan` is the suffix for hostnames on the local network,
+- local network CIDR is `192.168.1.0/24`
 
 Versions:
+
 - OpenWrt 23.05.3 arm64
 - BIND 9.18.24
 
-
 Disclaimer
 
-By following the steps below, you may break name resolution in your network, degrade your router's flash, or even disconnect yourself from the internet. I highly encourage you to try first on the [emulated device](https://github.com/graysievert/Homelab-010_DNS_x509CA/blob/master/110-openwrt_on_proxmox.md).
-
+By following the steps below, you may break name resolution in your network, degrade your router's flash, or even disconnect yourself from the internet. I highly encourage you to try first on the [emulated device](https://github.com/graysievert-lab/Homelab-010_DNS_x509CA/blob/master/110-openwrt_on_proxmox.md).
 
 ## Installation
 
 Before start breaking our router let's check what we already have
+
 ```bash
 $ netstat -tulpn
 Active Internet connections (only servers)
@@ -40,14 +43,18 @@ udp        0      0 10.1.2.144:53    0.0.0.0:*                 2510/dnsmasq
 udp        0      0 192.168.1.1:53   0.0.0.0:*                 2510/dnsmasq
 udp        0      0 0.0.0.0:67       0.0.0.0:*                 2510/dnsmasq
 ```
-As one can see both `53` (DNS) and `67` (DHCP) ports are being served with dnsmasq 
+
+As one can see both `53` (DNS) and `67` (DHCP) ports are being served with dnsmasq
 
 Installation is pretty straightforward:
+
 ```bash
 $ opkg update
 $ opkg install bind-server bind-tools bind-client
 ```
+
 Let's disable dnsmasq's DNS, and also we need to instruct dnsmasq to announce `192.168.1.1` as domain server via DHCP
+
 ```bash
 $ uci set dhcp.@dnsmasq[0].port=0
 $ uci set dhcp.@dnsmasq[0].domain='lan'
@@ -56,7 +63,9 @@ $ uci commit dhcp
 $ /etc/init.d/dnsmasq restart
 $ /etc/init.d/named restart
 ```
+
 The active services now should look like
+
 ```bash
 $ netstat -tulpn
 Active Internet connections (only servers)
@@ -74,9 +83,11 @@ udp        0      0 127.0.0.1:53    0.0.0.0:*                 8511/named
 udp        0      0 127.0.0.1:53    0.0.0.0:*                 8511/named
 udp        0      0 0.0.0.0:67      0.0.0.0:*                 8767/dnsmasq
 ```
-dnsmasq listens on DHCP port and named (BIND) listens on 53/953 ports. 
 
-Let's check that we have access to DNS 
+dnsmasq listens on DHCP port and named (BIND) listens on 53/953 ports.
+
+Let's check that we have access to DNS
+
 ```bash
 $ dig +dnssec +multi . DNSKEY
 ; <<>> DiG 9.18.24 <<>> +dnssec +multi . DNSKEY
@@ -135,11 +146,13 @@ $ dig +dnssec +multi . DNSKEY
 ;; WHEN: Wed Jun 26 20:36:11 UTC 2024
 ;; MSG SIZE  rcvd: 1169
 ```
+
 Looks good and we are ready for configuring our DNS server.
 
 ## Default configuration
 
 Right out of the box configuration folder /etc/bind looks like
+
 ```bash
 $ ls -lah /etc/bind 
 drwxr-xr-x  2 root root  3.4K Jun 26 20:15 .
@@ -155,18 +168,21 @@ drwxr-xr-x  1 root root  3.4K Jun 26 20:15 ..
 -rw-r--r--  1 root root   982 Feb 16 18:24 named.conf
 -rw-r--r--  1 root root   225 Jun 26 20:15 rndc.conf
 ```
+
 Where
+
 - `bind.keys` - trust anchors overrides for the DNS root zone (".") Curious readers may compare its contents with the answer we got from dig earlier
 - `db.root` - information on root name servers needed to initialize our cache
 - `db.0`, `db.255`, `db.empty` - reverse lookup zones for broadcast
 - `db.local` - forward lookup zone for localhost
-- `db.127` - reverse lookup zone for the loopback 
+- `db.127` - reverse lookup zone for the loopback
 - `named-rndc.conf` - contains key and controls permitting rndc utility to manage bind
 - `rndc.conf` - key and settings for rndc utility
 - `named.conf` - main configuration
 
 Out of the box `/etc/bind/named.conf` should look similar to this:
-```JSON
+
+```json
 // base named.conf file
 // Recommended that you always maintain a change log in this file as shown here
 // options clause defining the server-wide properties
@@ -223,12 +239,13 @@ zone "255.in-addr.arpa" {
 };
 ```
 
-
 ## Adding zones
 
 First, let's add a forward lookup zone file for our `lan.` local domain.
-`/etc/bind/db.lan`: 
-```
+
+`/etc/bind/db.lan`:
+
+```dns
 ; forward zone file for lan.
 $ORIGIN .
 $TTL 0  ; 0 seconds
@@ -247,9 +264,12 @@ openwrt                 A       192.168.1.1
 router                  CNAME   openwrt
 acme                    CNAME   openwrt
 ```
+
 and reverse lookup zone file for our `192.168.1.0/24` subnet
-`/etc/bind/db.1.168.192`: 
-```
+
+`/etc/bind/db.1.168.192`:
+
+```dns
 ; reverse zone file for lan.
 $ORIGIN .
 $TTL 0  ; 0 seconds
@@ -266,7 +286,9 @@ $ORIGIN 1.168.192.in-addr.arpa.
 1                       PTR     ns1.lan.
                         PTR     openwrt.lan.
 ```
+
 Note:  For a quick recap on syntax [visit](https://datatracker.ietf.org/doc/html/rfc1035#section-5), but here is a summary applicable to the files above:
+
 - `;` starts a comment. The rest of a line after it is ignored.
 - `()` are used just to cut long records into several lines of text.
 - Any domain name that does not end with the dot is appended with the current value in `$ORIGIN`. (e.g. CNAME record for `acme` is expanded to `acme.lan.` as the current value of `$ORIGIN` is `lan.`)
@@ -279,6 +301,7 @@ Note:  For a quick recap on syntax [visit](https://datatracker.ietf.org/doc/html
 Expansion rules above allow to really shorten records from `1.1.168.192.in-addr.arpa. 900 IN PTR openwrt.lan.` to just `PTR openwrt.lan.` 
 
 Let's check that zone files have proper syntax
+
 ```bash
 $ named-checkzone lan /etc/bind/db.lan 
 zone lan/IN: loaded serial 1719490275
@@ -290,6 +313,7 @@ OK
 ```
 
 With the zone files verified we can add corresponding zones to the bottom of /etc/bind/named.conf
+
 ```bash
 cat <<EOF>> /etc/bind/named.conf
 zone "lan" {
@@ -302,12 +326,15 @@ zone "1.168.192.in-addr.arpa" {
 };
 EOF
 ```
+
 Let's check that our config is properly formatted
+
 ```bash
 $ named-checkconf -pzx
 ```
 
 Let's reload the configuration and double-check our zones
+
 ```bash
 $ rndc reload
 
@@ -333,7 +360,9 @@ secure: no
 dynamic: no
 reconfigurable via modzone: no
 ```
+
 Looks fine. Let's test name resolution itself
+
 ```bash
 $ nslookup acme.lan && nslookup 192.168.1.1 
 Server:         127.0.0.1
@@ -351,18 +380,22 @@ Now you have a direct connection to DNS, which means anyone who can tap into you
 Disclaimer: Concealing DNS traffic with forwarders is actually a selection between being watched by your ISP with regional Bigbrother, or by Dr.Evil with Illuminati. Of course, if forwarded queries are leaving your network over port 53 unencrypted, the ISP still knows :)
 Starting from BIND 9.19.10 one may configure the use of TLS  for forwarded queries, alas only 9.18.24 in the OpenWRT package database at the moment.
 To achieve DNS-over-TLS (DOT) we may use  `stubby` as a DNS-over-TLS proxy:
+
 ```bash
 $ opkg install ca-certificates
 $ opkg install stubby
 ```
+
 To find out what port `stubby` is listening run
+
 ```bash
 $ uci get stubby.global.listen_address 
 127.0.0.1@5453 0::1@5453
 ```
 
 Let's add `stubby` as a forwarder into `/etc/bind/named.conf`. This will redirect BIND's DNS traffic to `stubby` which by default redirects everything to CloudFlare.
-```JSON
+
+```json
 options {
 ...
    forward only;
@@ -372,7 +405,9 @@ options {
 ...
 };
 ```
+
 check and reload
+
 ```bash
 $ named-checkconf
 $ rndc reload
@@ -380,11 +415,10 @@ $ rndc flush
 ```
 
 If after enabling forwarders name resolution does not seem working or you are unhappy with CloudFlare - here are a few hints that helped me.
-- `opkg install ca-certificates` helped me with error `TLS - *Failure* - (20) "unable to get local issuer certificate"` 
+
+- `opkg install ca-certificates` helped me with error `TLS - *Failure* - (20) "unable to get local issuer certificate"`
 - Check config for stubby `/etc/config/stubby`. The configuration of DoT resolvers is pretty self-explanatory.
-- Uncomment `option log_level '7'`  in `/etc/config/stubby` will enable debug output in syslog. Just run `logread -f` in another ssh session and reload service `/etc/init.d/stubby reload `
-
-
+- Uncomment `option log_level '7'`  in `/etc/config/stubby` will enable debug output in syslog. Just run `logread -f` in another ssh session and reload service `/etc/init.d/stubby reload`
 
 ## Dynamic zone updates
 
@@ -395,6 +429,7 @@ At this moment our bind server is fully static and new records in zone files won
 Note: Many examples on the internet use `dnssec-keygen` for TSIG key generation. It won't work with the current bind version as the feature to generate HMAC algorithms for use as TSIG keys via `dnssec-keygen` was removed in BIND 9.13.0.  We'll use `tsig-keygen` instead.
 
 As the `tsig-keygen` output is already formatted for inclusion into a config file we just need to:
+
 ```bash
 $ tsig-keygen | tee /etc/bind/keys.conf
 key "tsig-key" {
@@ -404,17 +439,18 @@ key "tsig-key" {
 ```
 
 Then append `/etc/bind/named.conf` with the `include "/etc/bind/keys.conf"`:
+
 ```bash
 cat<<EOF>> /etc/bind/named.conf
 include "/etc/bind/keys.conf";
 EOF
 ```
 
-
 ### Adjusting zone configuration
 
 Now add `allow-update` statement to the zone configs, which would allow any changes to the zone.
-```JSON
+
+```json
 zone "lan" {
         type primary;
         file "/etc/bind/db.lan";
@@ -430,32 +466,32 @@ zone "1.168.192.in-addr.arpa" {
         };
 };
 ```
+
 Note: if that is too broad permissions, then one may use proper `update-policy { update_policy_rule [...] };` stanza instead.
 
 Check and reload configuration:
+
 ```bash
 $ named-checkconf
 $ rndc reload
 ```
 
-
 ### File access permissions
 
 At the moment all files in `/etc/bind` directory have `-rw-r--r--  root:root` permissions. This means `named` launched as `bind:bind` wont be able to create or modify files. 
 Let's change the directory owner to `bind` and protect files there from prying eyes of other system users:
+
 ```bash
 $ chown -R bind:bind /etc/bind
 $ chmod 600 -R /etc/bind/*
 ```
 
-
-
-
 ## Changing zone file records via nsupdate
 
 Now let's add a few records into our zones.
 Create `nsupdate.cmd` file with the following contents
-```
+
+```bash
 server 127.0.0.1 53
 zone lan.
 update delete host2.lan.
@@ -468,9 +504,11 @@ update add 2.1.168.192.in-addr.arpa. 900 PTR host2.lan.
 show
 send
 ```
+
 Here we telling the nameserver to delete all records for `host2.lan` in the zone `lan.` if such records are present, and then add `A` record with `TTL 900`  for `host2.lan.` pointing to `192.168.1.2`. Then repeat the flow for PTR record in `1.168.192.in-addr.arpa.` reverse lookup zone.
 
 Run `nsupdate` pointing it to the file with the key and the file with the contents above:
+
 ```bash
 $ nsupdate -k /etc/bind/keys.conf nsupdate.cmd
 Outgoing update query:
@@ -490,20 +528,26 @@ Outgoing update query:
 2.1.168.192.in-addr.arpa. 0     ANY     ANY
 2.1.168.192.in-addr.arpa. 900   IN      PTR     host2.lan.
 ```
+
 Check
+
 ```bash
 $ host 192.168.1.2 && host host2.lan 
 2.1.168.192.in-addr.arpa domain name pointer host2.lan.
 host2.lan has address 192.168.1.2
 ```
+
 After this two new journal files should have appeared in `/etc/bind`:
+
 ```bash
 $ ls /etc/bind/*jnl 
 /etc/bind/db.1.168.192.jnl  /etc/bind/db.lan.jnl
 ```
+
 DISCLAIMER: These writes will speed up the degradation of your router's flash.  Please read the [docs](https://bind9.readthedocs.io/en/v9.18.24/chapter6.html#the-journal-file) to assess how bad that may be in your particular case. I am just accepting dumps once per 15 min as a lesser evil until I find a way to store them in memory on `/tmp` at the price of the possibility of losing some data on power loss.
 
 For now, let's just sync zones from memory to zone files and check what changed.
+
 ```bash
 $ rndc sync
 
@@ -543,14 +587,15 @@ $ORIGIN 1.168.192.in-addr.arpa.
                         PTR     openwrt.lan.
 2                       PTR     host2.lan.
 ```
-As one may see `host2.lan.` records were added in both zones.
 
+As one may see `host2.lan.` records were added in both zones.
 
 ## Changing records from a host on lan
 
 Use your favorite secrets transfer method to copy contents of `/etc/bind/keys.conf` to the chosen host.
 Also, we need to generate `nsupdate.cmd` file with server pointing to `192.168.1.1`:
-```
+
+```bash
 server 192.168.1.1 53
 zone lan.
 update delete host2.lan.
@@ -561,7 +606,9 @@ update delete 2.1.168.192.in-addr.arpa.
 show
 send
 ```
+
 Run `nsupdate`:
+
 ```bash
 [rocky@test ~]$ nsupdate -k keys.conf nsupdate.cmd 
 Outgoing update query:
@@ -582,14 +629,15 @@ Outgoing update query:
 ;; UPDATE SECTION:
 2.1.168.192.in-addr.arpa. 0     ANY     ANY
 ```
-No errors, which means it should have worked.
 
+No errors, which means it should have worked.
 
 ## Changing records via Terraform
 
 Overall, it should not matter what tool is used for zone updates - you just need a TSIG key name and key material. Let's try to update our zones via terraform:
 Create `main.tf`:
-```JSON
+
+```json
 # Disclaimer: Storing secrets in plain text within Terraform's configuration
 # and state files is strongly discouraged due to the inevitable security risks.
 # It is crucial to familiarize yourself with techniques to avoid those.
@@ -624,9 +672,11 @@ resource "dns_ptr_record" "ptr_192_168_1_100" {
   ttl = 900
 }
 ```
+
 Please note the trailing dot `.` in the `key_name` value. The `hashicorp/dns` provider is unhappy when it is not formatted as FQDN. At the same time, the value of `name` in resource declarations must NOT be fully qualified.
 
 Install `terraform`/`tofu`  and run
+
 ```bash
 [rocky@test ~]$ terraform init
 [rocky@test ~]$ terraform plan
@@ -661,7 +711,9 @@ dns_a_record_set.host100: Creation complete after 0s [id=host100.lan.]
 dns_ptr_record.ptr_192_168_1_100: Creation complete after 0s [id=100.1.168.192.in-addr.arpa.]
 Apply complete! Resources: 2 added, 0 changed, 0 destroyed.
 ```
+
 Let's go back to OpenWRT shell and check what we have in the zone files
+
 ```bash
 $ rndc sync 
 $ cat /etc/bind/db.lan 
@@ -701,7 +753,9 @@ $ORIGIN 1.168.192.in-addr.arpa.
                         PTR     openwrt.lan.
 100                     PTR     host100.lan.
 ```
+
 Looks legit.  Now let's remove records we've created
+
 ```bash
 [rocky@test ~]$ terraform destroy
 Terraform will perform the following actions:
@@ -735,18 +789,19 @@ dns_ptr_record.ptr_192_168_1_100: Destruction complete after 0s
 Destroy complete! Resources: 2 destroyed.
 ```
 
-
 ## Automatic registration of resource records for hosts requesting dhcp leases
 
 For now, we utilized remote but human-involved management of zones' contents. Let's add some automation for DHCP clients.
-Openwrt has a mechanism called [hotplug](https://openwrt.org/docs/guide-user/base-system/hotplug), which allows running user scripts as a reaction to events in various services. We are interested in `dhcp` events coming from `dnsmasq`, and  in order to run our script we need to just put it into `/etc/hotplug.d/dhcp/` directory. The script placed there would be called from `/usr/lib/dnsmasq/dhcp-script.sh` which in its turn is being called by `dnsmasq`. 
+Openwrt has a mechanism called [hotplug](https://openwrt.org/docs/guide-user/base-system/hotplug), which allows running user scripts as a reaction to events in various services. We are interested in `dhcp` events coming from `dnsmasq`, and  in order to run our script we need to just put it into `/etc/hotplug.d/dhcp/` directory. The script placed there would be called from `/usr/lib/dnsmasq/dhcp-script.sh` which in its turn is being called by `dnsmasq`.
 Our script will be provided with DHCP lease-related data in variables: `MACADDR`, `IPADDR`, `HOSTNAME`, and `ACTION="add|remove|update"`  
 
 CAVEAT: There is an ambiguity with the `HOSTNAME` variable in the case when a joining host does not provide its name to the DHCP server.
 
-#### Ambiguity details for curious:
+<details>
+  <summary>**Ambiguity details for curious**</summary>
 
-Let's create a test hotplug script `/etc/hotplug.d/dhcp/00-hello` 
+Let's create a test hotplug script `/etc/hotplug.d/dhcp/00-hello`
+
 ```bash
 logger "======================="
 logger "I've been supplied with this number of arguments: ${#}"
@@ -757,7 +812,9 @@ for var_passed in $(set); do
 done
 logger "======================="
 ```
+
 Let's trigger a DHCP event from a host on lan without providing DHCP server with hostname
+
 ```bash
 [rocky@test ~]$ hostname
 test
@@ -768,8 +825,10 @@ Sending on   LPF/eth0/bc:24:11:2a:92:e3
 Sending on   Socket/fallback
 DHCPRELEASE of 192.168.1.122 on eth0 to 192.168.1.1 port 67 (xid=0x303d9b4c)
 ```
+
 Let's check output of `logread` command
-```
+
+```text
 user.notice root: =======================
 user.notice root: I've been supplied with this number of arguments: 0
 user.notice root: There they are:
@@ -784,9 +843,11 @@ user.notice root: MACADDR='bc:24:11:2a:92:e3'
 ...
 user.notice root: =======================
 ```
-As one can see our script received `'OpenWrt'` instead of an empty string. 
+
+As one can see our script received `'OpenWrt'` instead of an empty string.
 
 Although when host sends its hostname it is being passed correctly
+
 ```bash
 $ hostname
 test
@@ -801,8 +862,10 @@ DHCPREQUEST for 192.168.1.122 on eth0 to 255.255.255.255 port 67 (xid=0x4c02d471
 DHCPACK of 192.168.1.122 from 192.168.1.1 (xid=0x4c02d471)
 bound to 192.168.1.122 -- renewal in 17215 seconds.
 ```
+
 Here's the output of `logread` command
-```
+
+```text
 user.notice root: =======================
 user.notice root: I've been supplied with this number of arguments: 0
 user.notice root: There they are:
@@ -816,10 +879,12 @@ user.notice root: IPADDR='192.168.1.122'
 user.notice root: MACADDR='bc:24:11:2a:92:e3' 
 user.notice root: =======================
 ```
-
+</details>
 
 ### Hotplug dhcp script
+
 Just create a file `/etc/hotplug.d/dhcp/00-hello` with the contents below. 
+
 ```bash
 #!/bin/sh
 #set -x 
@@ -870,11 +935,15 @@ EOL
 esac
 exit 0
 ```
+
 Then restart `dnsmasq`  
+
 ```bash
 $ /etc/init.d/dnsmasq restart
 ```
+
 One may test the script's operation by issuing these commands on a host on the lan side. 
+
 ```bash
 [rocky@test ~]$ hostname
 test
@@ -895,7 +964,9 @@ DHCPREQUEST for 192.168.1.122 on eth0 to 255.255.255.255 port 67 (xid=0x46faa10b
 DHCPACK of 192.168.1.122 from 192.168.1.1 (xid=0x46faa10b)
 bound to 192.168.1.122 -- renewal in 20468 seconds.
 ```
+
 with simultaneously watching system logs in OpenWRT
+
 ```bash
 $ logread -f 
 ...
@@ -949,7 +1020,9 @@ daemon.info named[1681]: client @0xffff95f64280 127.0.0.1#39719/key tsig-key: up
 daemon.info named[1681]: client @0xffff95f64280 127.0.0.1#39719/key tsig-key: updating zone '1.168.192.in-addr.arpa/IN': adding an RR at '122.1.168.192.in-addr.arpa' PTR test.lan.
 ...
 ```
+
 Test
+
 ```bash
 [rocky@test ~]$ nslookup test.lan
 Server:         192.168.1.1
@@ -957,4 +1030,5 @@ Address:        192.168.1.1#53
 Name:   test.lan
 Address: 192.168.1.122
 ```
+
 Configuration complete.
