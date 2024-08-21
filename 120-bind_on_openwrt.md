@@ -182,7 +182,7 @@ Where
 
 Out of the box `/etc/bind/named.conf` should look similar to this:
 
-```json
+```JavaScript
 // base named.conf file
 // Recommended that you always maintain a change log in this file as shown here
 // options clause defining the server-wide properties
@@ -395,7 +395,7 @@ $ uci get stubby.global.listen_address
 
 Let's add `stubby` as a forwarder into `/etc/bind/named.conf`. This will redirect BIND's DNS traffic to `stubby` which by default redirects everything to CloudFlare.
 
-```json
+```JavaScript
 options {
 ...
    forward only;
@@ -450,7 +450,7 @@ EOF
 
 Now add `allow-update` statement to the zone configs, which would allow any changes to the zone.
 
-```json
+```JavaScript
 zone "lan" {
         type primary;
         file "/etc/bind/db.lan";
@@ -637,7 +637,7 @@ No errors, which means it should have worked.
 Overall, it should not matter what tool is used for zone updates - you just need a TSIG key name and key material. Let's try to update our zones via terraform:
 Create `main.tf`:
 
-```json
+```JavaScript
 # Disclaimer: Storing secrets in plain text within Terraform's configuration
 # and state files is strongly discouraged due to the inevitable security risks.
 # It is crucial to familiarize yourself with techniques to avoid those.

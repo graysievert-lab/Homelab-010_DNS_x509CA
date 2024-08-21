@@ -782,7 +782,7 @@ This concludes the setup of the ACME provisioner, though there are a few things 
 
 At his moment `/etc/step-ca/config/ca.json` should look similar to this :
 
-```json
+```JavaScript
 {
     "root": "/etc/step-ca/certs/root_ca.crt",
     "federatedRoots": null,
@@ -843,7 +843,7 @@ Now let's tweak few things:
 
 At the moment there is not much information in the certificate's subject field. Making something appear there is simple - we just need to populate the `authority.template` dictionary:
 
-```json
+```JavaScript
 ... 
   "authority": {
 ...
@@ -890,7 +890,7 @@ Each provisioner in the `authority.provisioners[]` list and `authority` itself m
 
 Let's configure our CA in a way that our provisioner `JWK@openwrt.lan` for manual issuance of certificates would be able to produce a certificate with a validity up to `8765h` (~1 year):
 
-```json
+```JavaScript
 "provisioners": [ 
     {
      "type": "JWK", 
@@ -903,7 +903,7 @@ Let's configure our CA in a way that our provisioner `JWK@openwrt.lan` for manua
 
 and our provisioner `ACME@openwrt.lan` for automated issuance of certificates is defaulted to 2 days certificate validity which is also the maximum possible value:
 
-```json
+```JavaScript
 "provisioners": [
 ...
    {
@@ -920,7 +920,7 @@ and our provisioner `ACME@openwrt.lan` for automated issuance of certificates is
 
 Now `/etc/step-ca/config/ca.json` should look like:
 
-```json
+```JavaScript
 {
     "root": "/etc/step-ca/certs/root_ca.crt",
     "federatedRoots": null,
@@ -1022,7 +1022,7 @@ We will start an unsecured `crl` http endpoint on port `8080` in OpenWRT (typica
 
 In `/etc/step-ca/config/ca.json` change `"insecureAddress"` and add `"crl"` dictionary
 
-```json
+```JavaScript
 {
 ...
     "insecureAddress": ":8080",
@@ -1063,7 +1063,7 @@ EOF
 
 Now in `/etc/step-ca/config/ca.json` for each element in `authority.provisioners[]`  we need to configure `options.x509` to contain `"templateFile": "/etc/step-ca/templates/x509/leaf-crl.tpl"`:
 
-```json
+```JavaScript
 ...
 "options": {
     "x509": {
@@ -1076,7 +1076,7 @@ Now in `/etc/step-ca/config/ca.json` for each element in `authority.provisioners
 
 Eventually you would end up with `/etc/step-ca/config/ca.json` like this:
 
-```json
+```JavaScript
 {
     "root": "/etc/step-ca/certs/root_ca.crt",
     "federatedRoots": null,
